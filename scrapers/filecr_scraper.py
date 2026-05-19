@@ -1,5 +1,5 @@
 # ============================================================
-#  scrapers/filecr_scraper.py  —  FileCR.com scraper (Fixed v3)
+#  scrapers/filecr_scraper.py  —  FileCR.com scraper (Full)
 # ============================================================
 import requests
 from bs4 import BeautifulSoup
@@ -18,6 +18,16 @@ HEADERS = {
 
 BASE = "https://filecr.com"
 
+# Saari categories
+CATEGORIES = [
+    "/ms-windows/",
+    "/mac/",
+    "/android/",
+    "/android-games/",
+    "/pc-games/",
+]
+
+# Skip karo sirf top-level category pages
 SKIP_URLS = {
     f"{BASE}/android/",
     f"{BASE}/pc-games/",
@@ -30,30 +40,43 @@ SKIP_URLS = {
 
 
 def get_listing_urls(page: int = 1) -> list[str]:
-    """Latest software listing page se URLs nikalao."""
-    url = f"{BASE}/ms-windows/" if page == 1 else f"{BASE}/ms-windows/?page={page}"
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=15)
-        soup = BeautifulSoup(r.text, "html.parser")
-        links = []
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            if (
-                href.startswith("/windows/") or
-                href.startswith("/macos/") or
-                href.startswith("/android/") or
-                href.startswith("/pc-games/")
-            ):
-                full_url = BASE + href
-                parts = href.strip("/").split("/")
-                # Sirf software pages lo, category pages nahi
-                if full_url not in SKIP_URLS and len(parts) >= 2 and full_url not in links:
-                    links.append(full_url)
-        logger.info(f"FileCR page {page}: {len(links)} links found")
-        return list(dict.fromkeys(links))
-    except Exception as e:
-        logger.error(f"FileCR listing error: {e}")
-        return []
+    """Saari categories se URLs nikalao."""
+    all_links = []
+
+    for category in CATEGORIES:
+        if page == 1:
+            url = f"{BASE}{category}"
+        else:
+            url = f"{BASE}{category}?page={page}"
+
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=15)
+            soup = BeautifulSoup(r.text, "html.parser")
+
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if (
+                    href.startswith("/windows/") or
+                    href.startswith("/macos/") or
+                    href.startswith("/android/") or
+                    href.startswith("/pc-games/")
+                ):
+                    full_url = BASE + href
+                    parts = href.strip("/").split("/")
+                    if (
+                        full_url not in SKIP_URLS and
+                        len(parts) >= 2 and
+                        full_url not in all_links
+                    ):
+                        all_links.append(full_url)
+
+            logger.info(f"FileCR {category} page {page}: {len(all_links)} links so far")
+
+        except Exception as e:
+            logger.error(f"FileCR listing error ({category}): {e}")
+            continue
+
+    return list(dict.fromkeys(all_links))
 
 
 def scrape_detail(url: str) -> dict | None:
@@ -62,20 +85,19 @@ def scrape_detail(url: str) -> dict | None:
         r = requests.get(url, headers=HEADERS, timeout=15)
         soup = BeautifulSoup(r.text, "html.parser")
 
-        # Title — h1 se lo
+        # Title
         title_tag = soup.select_one("h1")
         title = title_tag.get_text(strip=True) if title_tag else "Unknown"
 
-        # Description — first meaningful paragraph
+        # Description
         description = ""
         for p in soup.select("p"):
             text = p.get_text(strip=True)
-            # Navigation/menu text skip karo
             if len(text) > 40 and "windows" not in text.lower()[:20]:
                 description = text
                 break
 
-        # Image — og:image sabse reliable hai FileCR pe
+        # Image — og:image sabse reliable
         image_url = ""
         og_img = soup.select_one("meta[property='og:image']")
         if og_img:
@@ -85,11 +107,7 @@ def scrape_detail(url: str) -> dict | None:
             if img_tag:
                 image_url = img_tag.get("src") or img_tag.get("data-src") or ""
 
-        # Download link
-        dl_tag = soup.select_one("a[href*='download'], a.download-btn")
-        download_url = dl_tag["href"] if dl_tag else url
-
-        # Version — title se extract karo (most reliable)
+        # Version — title se extract karo
         version = ""
         version_match = re.search(r'(\d+[\.\d]+)', title)
         if version_match:
@@ -102,12 +120,12 @@ def scrape_detail(url: str) -> dict | None:
             cat_map = {
                 "windows": "Windows",
                 "macos": "MacOS",
-                "android": "Android",
+                "android": "Android Apps",
                 "pc-games": "PC Games",
             }
             category = cat_map.get(parts[0], parts[0].title())
 
-        # Size — page se dhundho
+        # Size
         size = ""
         for tag in soup.select("span, li, td, div"):
             text = tag.get_text(strip=True)
@@ -120,7 +138,7 @@ def scrape_detail(url: str) -> dict | None:
             "title": title,
             "description": description,
             "image_url": image_url,
-            "download_url": download_url,
+            "download_url": url,
             "url": url,
             "size": size,
             "version": version,
