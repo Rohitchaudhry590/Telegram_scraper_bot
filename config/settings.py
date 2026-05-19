@@ -39,3 +39,5 @@ WEBSITES = [
 
 # 🔄 Rotation mode - har website se alternate scrape karo
 ROTATION_MODE = True
+# 📝 Log file
+LOG_FILE = os.getenv("LOG_FILE", "bot.log")
