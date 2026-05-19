@@ -2,7 +2,8 @@
 #  utils/database.py  —  SQLite se track karo posted URLs
 # ============================================================
 import sqlite3
-from config.settings import DB_FILE
+import os
+DB_FILE = os.getenv("DB_FILE", "/tmp/posted.db")
 
 
 def init_db():
