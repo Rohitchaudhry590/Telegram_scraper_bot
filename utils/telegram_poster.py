@@ -16,7 +16,8 @@ BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 def format_message(item: dict) -> str:
     title       = item.get("title", "No Title")
     description = item.get("description", "")[:DESC_MAX_LEN]
-    download    = item.get("download_url", item.get("url", ""))
+    # Seedha software page URL use karo
+    page_url    = item.get("url", "")
     category    = item.get("category", "")
     size        = item.get("size", "")
     version     = item.get("version", "")
@@ -27,8 +28,8 @@ def format_message(item: dict) -> str:
     if size:        lines.append(f"💾 Size: {size}")
     if description:
         lines.append(f"\n📝 {description}")
-    if download:
-        lines.append(f"\n🔗 <a href='{download}'>Download Now</a>")
+    if page_url:
+        lines.append(f"\n🔗 <a href='{page_url}'>⬇️ Download Now</a>")
 
     return "\n".join(lines)
 
@@ -59,9 +60,9 @@ def send_post(item: dict) -> bool:
             )
             data = resp.json()
 
-            # Agar photo fail ho toh text se try karo
+            # Photo fail ho toh text se try karo
             if not data.get("ok"):
-                logger.warning(f"⚠️ Photo send failed, text se try kar raha: {data}")
+                logger.warning(f"⚠️ Photo failed, text se try kar raha: {data}")
                 resp = requests.post(
                     f"{BASE_URL}/sendMessage",
                     data={
