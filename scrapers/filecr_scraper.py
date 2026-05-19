@@ -1,5 +1,5 @@
 # ============================================================
-#  scrapers/filecr_scraper.py  —  FileCR.com scraper (Updated)
+#  scrapers/filecr_scraper.py  —  FileCR.com scraper (Fixed)
 # ============================================================
 import requests
 from bs4 import BeautifulSoup
@@ -17,6 +17,15 @@ HEADERS = {
 
 BASE = "https://filecr.com"
 
+# Yeh sirf category pages hain, inhe skip karna hai
+SKIP_URLS = {
+    f"{BASE}/android/",
+    f"{BASE}/pc-games/",
+    f"{BASE}/ms-windows/",
+    f"{BASE}/mac/",
+    f"{BASE}/android-games/",
+}
+
 
 def get_listing_urls(page: int = 1) -> list[str]:
     """Latest software listing page se URLs nikalao."""
@@ -27,6 +36,7 @@ def get_listing_urls(page: int = 1) -> list[str]:
         links = []
         for a in soup.find_all("a", href=True):
             href = a["href"]
+            # Sirf specific software pages lo
             if (
                 href.startswith("/windows/") or
                 href.startswith("/macos/") or
@@ -34,8 +44,12 @@ def get_listing_urls(page: int = 1) -> list[str]:
                 href.startswith("/pc-games/")
             ):
                 full_url = BASE + href
-                if full_url not in links:
-                    links.append(full_url)
+                # Category pages skip karo, sirf sub-pages lo
+                if full_url not in SKIP_URLS and full_url not in links:
+                    # URL mein kam se kam 2 slashes hone chahiye /windows/software-name/
+                    parts = href.strip("/").split("/")
+                    if len(parts) >= 2:
+                        links.append(full_url)
         logger.info(f"FileCR page {page}: {len(links)} links found")
         return list(dict.fromkeys(links))
     except Exception as e:
@@ -57,11 +71,23 @@ def scrape_detail(url: str) -> dict | None:
         desc_tag = soup.select_one("div p, article p, main p")
         description = desc_tag.get_text(strip=True) if desc_tag else ""
 
-        # Image (FileCR imgcdn se serve karta hai)
-        img_tag = soup.select_one("img[src*='imgcdn']")
+        # Image — multiple fallbacks
         image_url = ""
-        if img_tag:
-            image_url = img_tag.get("src") or img_tag.get("data-src") or ""
+        for selector in [
+            "img[src*='imgcdn']",
+            "img[src*='media']",
+            "meta[property='og:image']",
+            "img[src*='http']",
+        ]:
+            tag = soup.select_one(selector)
+            if tag:
+                image_url = (
+                    tag.get("content") or
+                    tag.get("src") or
+                    tag.get("data-src") or ""
+                )
+                if image_url and image_url.startswith("http"):
+                    break
 
         # Download link
         dl_tag = soup.select_one("a[href*='download'], a.download-btn, a[href*='get']")
