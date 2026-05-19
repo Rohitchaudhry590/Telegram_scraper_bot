@@ -14,10 +14,6 @@ BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 
 def format_message(item: dict) -> str:
-    """
-    item keys expected:
-      title, description, image_url, download_url, category, size, version
-    """
     title       = item.get("title", "No Title")
     description = item.get("description", "")[:DESC_MAX_LEN]
     download    = item.get("download_url", item.get("url", ""))
@@ -26,9 +22,9 @@ def format_message(item: dict) -> str:
     version     = item.get("version", "")
 
     lines = [f"📦 <b>{title}</b>"]
-    if version:   lines.append(f"🔖 Version: {version}")
-    if category:  lines.append(f"🗂 Category: {category}")
-    if size:      lines.append(f"💾 Size: {size}")
+    if version:     lines.append(f"🔖 Version: {version}")
+    if category:    lines.append(f"🗂 Category: {category}")
+    if size:        lines.append(f"💾 Size: {size}")
     if description:
         lines.append(f"\n📝 {description}")
     if download:
@@ -38,12 +34,19 @@ def format_message(item: dict) -> str:
 
 
 def send_post(item: dict) -> bool:
-    """Post ek software item Telegram channel pe. True return kare agar success."""
+    """Post ek software item Telegram channel pe."""
     text = format_message(item)
-    image_url = item.get("image_url", "")
+    image_url = item.get("image_url", "").strip()
+
+    # Image valid hai ya nahi check karo
+    has_valid_image = (
+        SEND_IMAGE and
+        image_url and
+        image_url.startswith("http")
+    )
 
     try:
-        if SEND_IMAGE and image_url:
+        if has_valid_image:
             resp = requests.post(
                 f"{BASE_URL}/sendPhoto",
                 data={
@@ -54,6 +57,22 @@ def send_post(item: dict) -> bool:
                 },
                 timeout=20
             )
+            data = resp.json()
+
+            # Agar photo fail ho toh text se try karo
+            if not data.get("ok"):
+                logger.warning(f"⚠️ Photo send failed, text se try kar raha: {data}")
+                resp = requests.post(
+                    f"{BASE_URL}/sendMessage",
+                    data={
+                        "chat_id": TELEGRAM_CHANNEL_ID,
+                        "text": text,
+                        "parse_mode": "HTML",
+                        "disable_web_page_preview": False,
+                    },
+                    timeout=20
+                )
+                data = resp.json()
         else:
             resp = requests.post(
                 f"{BASE_URL}/sendMessage",
@@ -65,8 +84,8 @@ def send_post(item: dict) -> bool:
                 },
                 timeout=20
             )
+            data = resp.json()
 
-        data = resp.json()
         if data.get("ok"):
             logger.info(f"✅ Posted: {item.get('title')}")
             time.sleep(POST_DELAY_SECONDS)
@@ -81,7 +100,7 @@ def send_post(item: dict) -> bool:
 
 
 def send_status_message(text: str):
-    """Admin ko status message bhejo."""
+    """Status message bhejo."""
     try:
         requests.post(
             f"{BASE_URL}/sendMessage",
