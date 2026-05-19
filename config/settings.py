@@ -22,9 +22,6 @@ BACKFILL_PAGES = int(os.getenv("BACKFILL_PAGES", "10"))
 # 🗃️ Database file (SQLite) — previously posted URLs track karne ke liye
 DB_FILE = os.getenv("DB_FILE", "posted.db")
 
-# 📝 Log file
-LOG_FILE = os.getenv("LOG_FILE", "bot.log")
-
 # 🖼️ Image ke saath post kare ya nahi
 SEND_IMAGE = os.getenv("SEND_IMAGE", "True").lower() == "true"
 
