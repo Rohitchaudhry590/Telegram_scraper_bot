@@ -24,8 +24,13 @@ def get_listing_urls(page: int = 1) -> list[str]:
         r = requests.get(url, headers=HEADERS, timeout=15)
         soup = BeautifulSoup(r.text, "html.parser")
         links = []
-        # Common article/post selectors
-        for selector in ["article a[href]", "h2 a[href]", "h3 a[href]", ".post-title a[href]"]:
+        for selector in [
+            "article a[href]",
+            "h2 a[href]",
+            "h3 a[href]",
+            ".post-title a[href]",
+            ".entry-title a[href]"
+        ]:
             for a in soup.select(selector):
                 href = a.get("href", "")
                 if href and BASE in href and href not in links:
@@ -42,6 +47,7 @@ def scrape_detail(url: str) -> dict | None:
         r = requests.get(url, headers=HEADERS, timeout=15)
         soup = BeautifulSoup(r.text, "html.parser")
 
+        # Title
         title = ""
         for sel in ["h1.entry-title", "h1.post-title", "h1"]:
             t = soup.select_one(sel)
@@ -49,35 +55,45 @@ def scrape_detail(url: str) -> dict | None:
                 title = t.get_text(strip=True)
                 break
 
-        desc = ""
-        for sel in [".entry-content p", ".post-content p", "article p"]:
-            d = soup.select_one(sel)
-            if d:
-                desc = d.get_text(strip=True)
+        # Description
+        description = ""
+        for p in soup.select(".entry-content p, .post-content p, article p"):
+            text = p.get_text(strip=True)
+            if len(text) > 40:
+                description = text
                 break
 
-        img_url = ""
-        for sel in [".post-thumbnail img", "article img", ".featured img"]:
-            img = soup.select_one(sel)
-            if img:
-                img_url = img.get("src") or img.get("data-src") or ""
-                break
+        # Image — og:image first
+        image_url = ""
+        og_img = soup.select_one("meta[property='og:image']")
+        if og_img:
+            image_url = og_img.get("content", "")
+        if not image_url:
+            for sel in [".post-thumbnail img", "article img", ".featured img"]:
+                img = soup.select_one(sel)
+                if img:
+                    image_url = img.get("src") or img.get("data-src") or ""
+                    if image_url:
+                        break
 
-        dl = soup.select_one("a[href*='download']")
-        download_url = dl["href"] if dl else url
+        # Version — title se
+        version = ""
+        version_match = re.search(r'(\d+[\.\d]+)', title)
+        if version_match:
+            version = version_match.group(1)
 
+        # Size
+        size = ""
         full = soup.get_text(" ")
-        size = version = ""
-        m = re.search(r"Size\s*[:\-]\s*([\w\.\s]+(?:MB|GB))", full, re.I)
-        if m: size = m.group(1).strip()[:50]
-        m = re.search(r"Version\s*[:\-]\s*([\w\.\-]+)", full, re.I)
-        if m: version = m.group(1).strip()[:50]
+        m = re.search(r"Size\s*[:\-]\s*([\d\.]+\s*(?:MB|GB|KB))", full, re.I)
+        if m:
+            size = m.group(1).strip()[:50]
 
         return {
             "title": title or "Unknown",
-            "description": desc[:600],
-            "image_url": img_url,
-            "download_url": download_url,
+            "description": description[:600],
+            "image_url": image_url,
+            "download_url": url,
             "url": url,
             "size": size,
             "version": version,
