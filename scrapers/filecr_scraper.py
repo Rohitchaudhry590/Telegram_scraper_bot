@@ -1,9 +1,10 @@
 # ============================================================
-#  scrapers/filecr_scraper.py  —  FileCR.com scraper (Fixed)
+#  scrapers/filecr_scraper.py  —  FileCR.com scraper (Fixed v3)
 # ============================================================
 import requests
 from bs4 import BeautifulSoup
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -17,13 +18,14 @@ HEADERS = {
 
 BASE = "https://filecr.com"
 
-# Yeh sirf category pages hain, inhe skip karna hai
 SKIP_URLS = {
     f"{BASE}/android/",
     f"{BASE}/pc-games/",
     f"{BASE}/ms-windows/",
     f"{BASE}/mac/",
     f"{BASE}/android-games/",
+    f"{BASE}/windows/",
+    f"{BASE}/macos/",
 }
 
 
@@ -36,7 +38,6 @@ def get_listing_urls(page: int = 1) -> list[str]:
         links = []
         for a in soup.find_all("a", href=True):
             href = a["href"]
-            # Sirf specific software pages lo
             if (
                 href.startswith("/windows/") or
                 href.startswith("/macos/") or
@@ -44,12 +45,10 @@ def get_listing_urls(page: int = 1) -> list[str]:
                 href.startswith("/pc-games/")
             ):
                 full_url = BASE + href
-                # Category pages skip karo, sirf sub-pages lo
-                if full_url not in SKIP_URLS and full_url not in links:
-                    # URL mein kam se kam 2 slashes hone chahiye /windows/software-name/
-                    parts = href.strip("/").split("/")
-                    if len(parts) >= 2:
-                        links.append(full_url)
+                parts = href.strip("/").split("/")
+                # Sirf software pages lo, category pages nahi
+                if full_url not in SKIP_URLS and len(parts) >= 2 and full_url not in links:
+                    links.append(full_url)
         logger.info(f"FileCR page {page}: {len(links)} links found")
         return list(dict.fromkeys(links))
     except Exception as e:
@@ -63,46 +62,59 @@ def scrape_detail(url: str) -> dict | None:
         r = requests.get(url, headers=HEADERS, timeout=15)
         soup = BeautifulSoup(r.text, "html.parser")
 
-        # Title
+        # Title — h1 se lo
         title_tag = soup.select_one("h1")
         title = title_tag.get_text(strip=True) if title_tag else "Unknown"
 
-        # Description
-        desc_tag = soup.select_one("div p, article p, main p")
-        description = desc_tag.get_text(strip=True) if desc_tag else ""
+        # Description — first meaningful paragraph
+        description = ""
+        for p in soup.select("p"):
+            text = p.get_text(strip=True)
+            # Navigation/menu text skip karo
+            if len(text) > 40 and "windows" not in text.lower()[:20]:
+                description = text
+                break
 
-        # Image — multiple fallbacks
+        # Image — og:image sabse reliable hai FileCR pe
         image_url = ""
-        for selector in [
-            "img[src*='imgcdn']",
-            "img[src*='media']",
-            "meta[property='og:image']",
-            "img[src*='http']",
-        ]:
-            tag = soup.select_one(selector)
-            if tag:
-                image_url = (
-                    tag.get("content") or
-                    tag.get("src") or
-                    tag.get("data-src") or ""
-                )
-                if image_url and image_url.startswith("http"):
-                    break
+        og_img = soup.select_one("meta[property='og:image']")
+        if og_img:
+            image_url = og_img.get("content", "")
+        if not image_url:
+            img_tag = soup.select_one("img[src*='imgcdn'], img[src*='media']")
+            if img_tag:
+                image_url = img_tag.get("src") or img_tag.get("data-src") or ""
 
         # Download link
-        dl_tag = soup.select_one("a[href*='download'], a.download-btn, a[href*='get']")
+        dl_tag = soup.select_one("a[href*='download'], a.download-btn")
         download_url = dl_tag["href"] if dl_tag else url
 
-        # Size, Version, Category
-        size = version = category = ""
-        for li in soup.select("li, tr, div"):
-            text = li.get_text(" ", strip=True).lower()
-            if "size" in text and not size:
-                size = li.get_text(strip=True)[:50]
-            if "version" in text and not version:
-                version = li.get_text(strip=True)[:50]
-            if "categor" in text and not category:
-                category = li.get_text(strip=True)[:50]
+        # Version — title se extract karo (most reliable)
+        version = ""
+        version_match = re.search(r'(\d+[\.\d]+)', title)
+        if version_match:
+            version = version_match.group(1)
+
+        # Category — URL se extract karo
+        category = ""
+        parts = url.replace(BASE, "").strip("/").split("/")
+        if len(parts) >= 1:
+            cat_map = {
+                "windows": "Windows",
+                "macos": "MacOS",
+                "android": "Android",
+                "pc-games": "PC Games",
+            }
+            category = cat_map.get(parts[0], parts[0].title())
+
+        # Size — page se dhundho
+        size = ""
+        for tag in soup.select("span, li, td, div"):
+            text = tag.get_text(strip=True)
+            size_match = re.search(r'(\d+\.?\d*\s*(mb|gb|kb))', text, re.IGNORECASE)
+            if size_match:
+                size = size_match.group(1).upper()
+                break
 
         return {
             "title": title,
