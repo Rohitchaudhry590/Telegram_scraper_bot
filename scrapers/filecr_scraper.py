@@ -1,5 +1,5 @@
 # ============================================================
-#  scrapers/filecr_scraper.py  —  FileCR.com scraper
+#  scrapers/filecr_scraper.py  —  FileCR.com scraper (Updated)
 # ============================================================
 import requests
 from bs4 import BeautifulSoup
@@ -20,23 +20,24 @@ BASE = "https://filecr.com"
 
 def get_listing_urls(page: int = 1) -> list[str]:
     """Latest software listing page se URLs nikalao."""
-    url = f"{BASE}/page/{page}/" if page > 1 else f"{BASE}/"
+    url = f"{BASE}/ms-windows/" if page == 1 else f"{BASE}/ms-windows/?page={page}"
     try:
         r = requests.get(url, headers=HEADERS, timeout=15)
         soup = BeautifulSoup(r.text, "html.parser")
         links = []
-        for a in soup.select("h2.post-title a, h3.title a, article a.entry-title-link"):
-            href = a.get("href", "")
-            if href and href.startswith("http"):
-                links.append(href)
-        # fallback broad selector
-        if not links:
-            for a in soup.select("article a[href]"):
-                href = a["href"]
-                if BASE in href and href not in links:
-                    links.append(href)
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if (
+                href.startswith("/windows/") or
+                href.startswith("/macos/") or
+                href.startswith("/android/") or
+                href.startswith("/pc-games/")
+            ):
+                full_url = BASE + href
+                if full_url not in links:
+                    links.append(full_url)
         logger.info(f"FileCR page {page}: {len(links)} links found")
-        return list(dict.fromkeys(links))  # deduplicate
+        return list(dict.fromkeys(links))
     except Exception as e:
         logger.error(f"FileCR listing error: {e}")
         return []
@@ -49,33 +50,33 @@ def scrape_detail(url: str) -> dict | None:
         soup = BeautifulSoup(r.text, "html.parser")
 
         # Title
-        title_tag = soup.select_one("h1.post-title, h1.entry-title, h1")
+        title_tag = soup.select_one("h1")
         title = title_tag.get_text(strip=True) if title_tag else "Unknown"
 
-        # Description (first paragraph)
-        desc_tag = soup.select_one(".entry-content p, .post-content p, article p")
+        # Description
+        desc_tag = soup.select_one("div p, article p, main p")
         description = desc_tag.get_text(strip=True) if desc_tag else ""
 
-        # Thumbnail / featured image
-        img_tag = soup.select_one(".post-thumbnail img, .featured-image img, article img")
+        # Image (FileCR imgcdn se serve karta hai)
+        img_tag = soup.select_one("img[src*='imgcdn']")
         image_url = ""
         if img_tag:
             image_url = img_tag.get("src") or img_tag.get("data-src") or ""
 
-        # Download link (external)
-        dl_tag = soup.select_one("a.download-btn, a[href*='download'], a.btn-download")
+        # Download link
+        dl_tag = soup.select_one("a[href*='download'], a.download-btn, a[href*='get']")
         download_url = dl_tag["href"] if dl_tag else url
 
-        # Meta info (size, version, category)
+        # Size, Version, Category
         size = version = category = ""
-        for li in soup.select(".post-meta li, .entry-meta li, table tr"):
+        for li in soup.select("li, tr, div"):
             text = li.get_text(" ", strip=True).lower()
-            if "size" in text:
-                size = li.get_text(strip=True).replace("Size:", "").replace("size:", "").strip()
-            if "version" in text:
-                version = li.get_text(strip=True).replace("Version:", "").replace("version:", "").strip()
-            if "categor" in text:
-                category = li.get_text(strip=True).replace("Category:", "").replace("category:", "").strip()
+            if "size" in text and not size:
+                size = li.get_text(strip=True)[:50]
+            if "version" in text and not version:
+                version = li.get_text(strip=True)[:50]
+            if "categor" in text and not category:
+                category = li.get_text(strip=True)[:50]
 
         return {
             "title": title,
@@ -83,9 +84,9 @@ def scrape_detail(url: str) -> dict | None:
             "image_url": image_url,
             "download_url": download_url,
             "url": url,
-            "size": size[:50],
-            "version": version[:50],
-            "category": category[:50],
+            "size": size,
+            "version": version,
+            "category": category,
         }
     except Exception as e:
         logger.error(f"FileCR detail error ({url}): {e}")
